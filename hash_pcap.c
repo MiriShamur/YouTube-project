@@ -32,7 +32,7 @@ int add_new_trans_to_conn(const u_char *packet, struct iphdr *iph, __time_t pack
 int save_trans(connection *conn);
 int close_hash();
 int is_ser_to_cli(const u_char *packet, struct iphdr *iph);
-void read_json();
+
 void sig_handler(int signo)
 {
    if (signo == SIGINT)
@@ -86,7 +86,6 @@ int main(int argc, char const *argv[])
    ht_connection = ht_create();
    int i, j = 0;
     json();
-   //read_json();
    connect_id =  INT_ZERO;
    time_req = INT_ZERO;
    pack_num =  INT_ZERO;
