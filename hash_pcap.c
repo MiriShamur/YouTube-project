@@ -54,12 +54,14 @@ int INBOUND_PACKETS_IN_RANGE_MIN;
 int CONN_SIZE_CHARS;
 int ZERO;
 
-
 double diff_time;
+uint16_t dest_port;
+uint16_t source_port;
+uint16_t pack_size;
 int connect_id;
 int pack_num;
 int time_req;
-char SCV_file[20] = "Documentation.csv";
+char SCV_file[20] = "documentation.csv";
 FILE *fp;
 ht *ht_connection;
 char buffer[1024];
@@ -263,16 +265,13 @@ connection *create_new_connection(int size, struct iphdr *iph, __time_t pack_tim
 
 int add_new_trans_to_conn(const u_char *packet, struct iphdr *iph, __time_t packet_time, connection *conn)
 {
-   unsigned short iphdrlen;
-   iphdrlen = iph->ihl * 4;
-   struct udphdr *udph = (struct udphdr *)(packet + iphdrlen + sizeof(struct ethhdr));
-   conn->trans = create_new_transaction(iph, packet_time, udph->len, conn->trans->tuple, (conn->sum_transaction + 1));
+   conn->trans = create_new_transaction(iph, packet_time, pack_size, conn->trans->tuple, (conn->sum_transaction + 1));
    if (conn->trans == NULL)
    {
       printf("trans not create");
       return -1;
    }
-   conn->size += udph->len;
+   conn->size += pack_size;
    conn->sum_transaction++;
    // printf("trans num:%d added succes to conn:%d\n", conn->trans->transaction_id, conn->connection_id);
    return 1;
@@ -322,21 +321,25 @@ f_tuple *create_f_tupel(const u_char *packet, struct iphdr *iph)
    struct udphdr *udph = (struct udphdr *)(packet + iphdrlen + sizeof(struct ethhdr));
    f_tuple *tuple = (f_tuple *)malloc(sizeof(f_tuple));
    tuple->protocol = iph->protocol;
+   // pack_size to other funcs
+   pack_size = udph->len;
    memset(&source, 0, sizeof(source));
    source.sin_addr.s_addr = iph->saddr;
    memset(&dest, 0, sizeof(dest));
    dest.sin_addr.s_addr = iph->daddr;
-   if (ntohs(udph->dest) == YouTube_PORT)
+   source_port = ntohs(udph->source);
+   dest_port = ntohs(udph->dest);
+   if (dest_port == YouTube_PORT)
    {
       tuple->server_port = YouTube_PORT;
-      tuple->client_port = ntohs(udph->source);
+      tuple->client_port = source_port;
       tuple->server_ip = dest.sin_addr.s_addr;
       tuple->client_ip = source.sin_addr.s_addr;
    }
-   else if (ntohs(udph->source) == YouTube_PORT)
+   else if (source_port == YouTube_PORT)
    {
       tuple->server_port = YouTube_PORT;
-      tuple->client_port = ntohs(udph->dest);
+      tuple->client_port = dest_port;
       tuple->server_ip = source.sin_addr.s_addr;
       tuple->client_ip = dest.sin_addr.s_addr;
    }
@@ -349,31 +352,28 @@ f_tuple *create_f_tupel(const u_char *packet, struct iphdr *iph)
 void add_packet_to_transaction(const u_char *packet, struct iphdr *iph, connection *conn, __time_t pack_time)
 {
    printf("add packet%d to trans:%d, conn:%d\n", conn->trans->num_in_packets + conn->trans->num_out_packets, conn->trans->transaction_id, conn->connection_id);
-   unsigned short iphdrlen;
-   iphdrlen = iph->ihl * 4;
-   struct udphdr *udph = (struct udphdr *)(packet + iphdrlen + sizeof(struct ethhdr));
-   if (ntohs(udph->dest) == YouTube_PORT)
+   if (dest_port == YouTube_PORT)
    {
-      if (udph->len < INBOUND_PACKETS_IN_RANGE_MIN)
+      if (pack_size < INBOUND_PACKETS_IN_RANGE_MIN)
       {
          return;
       }
       conn->trans->num_in_packets++;
    }
-   else if (ntohs(udph->source) == YouTube_PORT)
+   else if (source_port == YouTube_PORT)
    {
       conn->trans->num_out_packets++;
    }
-   if (conn->trans->max_size < udph->len)
+   if (conn->trans->max_size < pack_size)
    {
-      conn->trans->max_size = udph->len;
+      conn->trans->max_size = pack_size;
    }
-   else if (conn->trans->min_size > udph->len)
+   else if (conn->trans->min_size > pack_size)
    {
-      conn->trans->min_size = udph->len;
+      conn->trans->min_size = pack_size;
    }
-   //printf("%ld",pack_time-conn->trans->packet_time);
-   diff_time = difftime(pack_time,conn->trans->packet_time);
+   // printf("%ld",pack_time-conn->trans->packet_time);
+   diff_time = difftime(pack_time, conn->trans->packet_time);
    if (conn->trans->max_packet_time_diff < diff_time)
    {
       conn->trans->max_packet_time_diff = diff_time;
@@ -383,7 +383,7 @@ void add_packet_to_transaction(const u_char *packet, struct iphdr *iph, connecti
       conn->trans->min_packet_time_diff = diff_time;
    }
    conn->trans->packet_time = pack_time;
-   conn->size += udph->len;
+   conn->size += pack_size;
    return;
 }
 
@@ -399,11 +399,7 @@ void empty_the_write_to_CSV_file(char write_to_CSV_file[])
 // Check if it's new request
 int is_new_request(const u_char *packet, struct iphdr *iph)
 {
-   unsigned short iphdrlen;
-   iphdrlen = iph->ihl * 4;
-   struct udphdr *udph = (struct udphdr *)(packet + iphdrlen + sizeof(struct ethhdr));
-   int data_size = udph->len;
-   return data_size > REQUEST_PACKET_THRESHOLD ? 1 : -1;
+   return pack_size > REQUEST_PACKET_THRESHOLD ? 1 : -1;
 }
 
 // Checks if a period of time has passed since the previous packet
@@ -421,10 +417,7 @@ int add_to_hash(connection *conn)
 // Create new connection and append to hash table
 int new_conn_and_append_to_hash(const u_char *packet, struct iphdr *iph, f_tuple *tuple, __time_t packet_time)
 {
-   unsigned short iphdrlen;
-   iphdrlen = iph->ihl * 4;
-   struct udphdr *udph = (struct udphdr *)(packet + iphdrlen + sizeof(struct ethhdr));
-   connection *conn = create_new_connection(udph->len, iph, packet_time, tuple);
+   connection *conn = create_new_connection(pack_size, iph, packet_time, tuple);
    if (add_to_hash(conn) < 0)
    {
       perror("the hash full--not insert to hash\n");
@@ -456,7 +449,7 @@ int close_hash()
       {
          printf("append conn: %d ind=%d\n", ht_connection->entries[i].value->connection_id, i);
          save_trans(ht_connection->entries[i].value);
-         fprintf(file, "%s", ht_connection->entries[i].value->last_transactions);
+         fprintf(file, "%s",ht_connection->entries[i].value->last_transactions);
       }
       free((void *)ht_connection->entries[i].value);
    }
@@ -490,14 +483,11 @@ int save_trans(connection *conn)
 // return 1 if packet from yhe server and 2 if from client
 int is_ser_to_cli(const u_char *packet, struct iphdr *iph)
 {
-   unsigned short iphdrlen;
-   iphdrlen = iph->ihl * 4;
-   struct udphdr *udph = (struct udphdr *)(packet + iphdrlen + sizeof(struct ethhdr));
-   if (ntohs(udph->dest) == YouTube_PORT)
+   if (dest_port == YouTube_PORT)
    {
       return 1;
    }
-   if (ntohs(udph->source) == YouTube_PORT)
+   if (source_port == YouTube_PORT)
    {
       return 2;
    }
