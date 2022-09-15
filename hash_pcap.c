@@ -160,7 +160,7 @@ void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header)
             // if(pack_size>700)
             if (is_new_request() == 1)
             {
-               new_conn_and_append_to_hash(tuple, packet_header.ts.tv_sec+packet_header.ts.tv_usec);
+               new_conn_and_append_to_hash(tuple, packet_header.ts.tv_sec + packet_header.ts.tv_usec);
             }
             return;
          }
@@ -173,7 +173,7 @@ void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header)
                   return;
                }
                // check if(time_req<20sec || sum transaction>1000){
-               if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec+packet_header.ts.tv_usec) == 1 || conn->sum_transaction >= MAX_NUMBER_OF_CONNECTIONS)
+               if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec + packet_header.ts.tv_usec) == 1 || conn->sum_transaction >= MAX_NUMBER_OF_CONNECTIONS)
                {
                   if (conn->size > MINIMUM_VIDEO_CONNECTION_SIZE)
                   {
@@ -182,28 +182,28 @@ void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header)
                         printf("Unable to write .txt file.\n");
                         return;
                      }
-                     new_conn_and_append_to_hash(tuple, packet_header.ts.tv_sec+packet_header.ts.tv_usec);
+                     new_conn_and_append_to_hash(tuple, packet_header.ts.tv_sec + packet_header.ts.tv_usec);
                      return;
                   }
                }
-               else if (add_new_trans_to_conn(packet_header.ts.tv_sec+packet_header.ts.tv_usec, conn) != 1)
+               else if (add_new_trans_to_conn(packet_header.ts.tv_sec + packet_header.ts.tv_usec, conn) != 1)
                {
                   printf("cnot..\n");
                   return;
                }
             }
-            else if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec+packet_header.ts.tv_usec) != 1)
+            else if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec + packet_header.ts.tv_usec) != 1)
             {
-               add_packet_to_transaction(conn, packet_header.ts.tv_sec+packet_header.ts.tv_usec);
+               add_packet_to_transaction(conn, packet_header.ts.tv_sec + packet_header.ts.tv_usec);
                return;
             }
             else
                return;
          }
-         //printf("prtocol not udp\n");
+         // printf("prtocol not udp\n");
          return;
       }
-      //printf("ip not v4\n");
+      // printf("ip not v4\n");
    }
 
    return;
@@ -287,6 +287,7 @@ int append_line(char *lines)
       printf("Unable to open file.\n");
       return -1;
    }
+   // SHF_ASSERT(NULL != file, "shf.log: ERROR: fopen('%s', 'a') failed", SCV_file);
    fprintf(file, "%s", lines);
    fclose(file);
    empty_the_write_to_CSV_file(lines);
@@ -367,8 +368,12 @@ void add_packet_to_transaction(connection *conn, __time_t pack_time)
    {
       conn->trans->min_size = Pack_size;
    }
-   // printf("%ld",pack_time-conn->trans->packet_time);
    Diff_time = difftime(pack_time, conn->trans->packet_time);
+   if (Diff_time < 0)
+   {
+      Diff_time *= -1;
+   }
+   printf("diff:%f\n", Diff_time);
    if (conn->trans->max_packet_time_diff < Diff_time)
    {
       conn->trans->max_packet_time_diff = Diff_time;
