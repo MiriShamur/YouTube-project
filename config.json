@@ -1,0 +1,24 @@
+{
+    "inbound_packets_in_range_min": 500,
+    "inbound_packets_in_range_max" : 2000,
+    "outbound_packets_in_range_min" : 0,
+    "outbound_packets_in_range_max" :699,
+    "max_diff_time_inbound_threshold" : 500,
+    "min_diff_time_inbound_threshold" :500,
+    "number_of_videos_to_output_statistics_per_video": 3,
+    "max_number_of_transaction_per_video" :1000,
+
+
+    "CONN_SIZE_CHARS" :300000,
+    "MAX_NUMBER_OF_CONNECTIONS" :1000,
+    "REQUEST_PACKET_THRESHOLD" :700,
+    "MINIMUM_VIDEO_CONNECTION_SIZE" :1000000,
+    "NUM_IP_BYTE" :17,
+    "YouTube_PORT" :443,
+    "UDP_PROTOCOL" :17,
+    "VIDEO_CONNECTION_TIMEOUT" :20,
+    "IPV" :4,
+    "INBOUND_PACKETS_IN_RANGE_MIN" :500,
+    "ZERO":0
+
+}
