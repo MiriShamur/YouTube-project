@@ -42,35 +42,34 @@ void sig_handler(int signo)
       exit(0);
    }
 }
+int MAX_NUMBER_OF_CONNECTIONS;
+int REQUEST_PACKET_THRESHOLD;
+int MINIMUM_VIDEO_CONNECTION_SIZE;
+int NUM_IP_BYTE;
+int YouTube_PORT;
+int UDP_PROTOCOL;
+int VIDEO_CONNECTION_TIMEOUT;
+int IPV;
+int INBOUND_PACKETS_IN_RANGE_MIN;
+int CONN_SIZE_CHARS;
+int ZERO;
 
-int INT_MAX_NUMBER_OF_CONNECTIONS;
-int INT_REQUEST_PACKET_THRESHOLD;
-int INT_MINIMUM_VIDEO_CONNECTION_SIZE;
-int INT_NUM_IP_BYTE;
-int INT_YouTube_PORT;
-int INT_UDP_PROTOCOL;
-int INT_VIDEO_CONNECTION_TIMEOUT;
-int INT_IPV;
-int INT_INBOUND_PACKETS_IN_RANGE_MIN;
-int INT_CONN_SIZE_CHARS;
-int INT_ZERO;
 
-int connect_id;
 double diff_time;
-
+int connect_id;
 int pack_num;
 int time_req;
 char SCV_file[20] = "Documentation.csv";
-
-// config_data config;
+FILE *fp;
 ht *ht_connection;
+char buffer[1024];
+struct json_object *parsed_json;
 struct sockaddr_in source, dest;
 clock_t start;
 __time_t Last_packet_time;
 char write_to_CSV_file[size_malloc];
 char buff[20];
 struct tm *ltime;
-
 struct in_addr *addr_cli;
 struct in_addr *addr_srv;
 char addr_c[16];
@@ -84,6 +83,11 @@ int main(int argc, char const *argv[])
    start = clock();
    ht_connection = ht_create();
    int i, j = 0;
+
+   fp = fopen("config.json", "r");
+   fread(buffer, 1024, 1, fp);
+   fclose(fp);
+   parsed_json = json_tokener_parse(buffer);
    json();
    connect_id = 0;
    time_req = 0;
@@ -107,8 +111,7 @@ int main(int argc, char const *argv[])
    struct timeval st_ts;
    const u_char *packet;
    struct pcap_pkthdr packet_header;
-   pcap_t *handle = pcap_open_offline("capture_file_part.pcap", error_buffer);
-   // pcap_t *handle = pcap_open_offline("capture_file.pcap", error_buffer);
+   pcap_t *handle = pcap_open_offline("capture_file.pcap", error_buffer);
    if (handle == NULL)
    {
       fprintf(stderr, "Could not open device %s: %s\n", device, error_buffer);
@@ -140,11 +143,8 @@ int main(int argc, char const *argv[])
 }
 void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header)
 {
-   // printf("\n///////////\n");
-
    struct iphdr *iph = (struct iphdr *)(packet + sizeof(struct ethhdr));
    // check if(ip_header==v4)
-
    if (check_ip_version(iph) == 1)
    {
       // check if(protocol==17){
@@ -168,16 +168,16 @@ void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header)
          }
          else
          {
-            // check if(time_req<20sec || pack_num<1000){
             if (is_ser_to_cli(packet, iph) == 1 && is_new_request(packet, iph) == 1)
             {
                if (save_trans(conn) != 1)
                {
                   return;
                }
-               if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec) == 1 || conn->sum_transaction >= INT_MAX_NUMBER_OF_CONNECTIONS)
+               // check if(time_req<20sec || sum transaction>1000){
+               if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec) == 1 || conn->sum_transaction >= MAX_NUMBER_OF_CONNECTIONS)
                {
-                  if (conn->size > INT_MINIMUM_VIDEO_CONNECTION_SIZE)
+                  if (conn->size > MINIMUM_VIDEO_CONNECTION_SIZE)
                   {
                      if (append_line(conn->last_transactions) < 0)
                      {
@@ -227,8 +227,8 @@ transaction *create_new_transaction(struct iphdr *iph, __time_t pack_time, int s
    trans->packet_time = pack_time;
    trans->min_size = size;
    trans->max_size = size;
-   trans->max_packet_time_diff = 0;
-   trans->min_packet_time_diff = 0;
+   trans->max_packet_time_diff = 0.0;
+   trans->min_packet_time_diff = 9999999.9;
    return trans;
 }
 
@@ -281,7 +281,7 @@ int add_new_trans_to_conn(const u_char *packet, struct iphdr *iph, __time_t pack
 // Check if ip version is a ipv
 int check_ip_version(struct iphdr *iph)
 {
-   return (unsigned int)iph->version == INT_IPV ? 1 : 0;
+   return (unsigned int)iph->version == IPV ? 1 : 0;
 }
 // Write to file
 int append_line(char *lines)
@@ -326,16 +326,16 @@ f_tuple *create_f_tupel(const u_char *packet, struct iphdr *iph)
    source.sin_addr.s_addr = iph->saddr;
    memset(&dest, 0, sizeof(dest));
    dest.sin_addr.s_addr = iph->daddr;
-   if (ntohs(udph->dest) == INT_YouTube_PORT)
+   if (ntohs(udph->dest) == YouTube_PORT)
    {
-      tuple->server_port = INT_YouTube_PORT;
+      tuple->server_port = YouTube_PORT;
       tuple->client_port = ntohs(udph->source);
       tuple->server_ip = dest.sin_addr.s_addr;
       tuple->client_ip = source.sin_addr.s_addr;
    }
-   else if (ntohs(udph->source) == INT_YouTube_PORT)
+   else if (ntohs(udph->source) == YouTube_PORT)
    {
-      tuple->server_port = INT_YouTube_PORT;
+      tuple->server_port = YouTube_PORT;
       tuple->client_port = ntohs(udph->dest);
       tuple->server_ip = source.sin_addr.s_addr;
       tuple->client_ip = dest.sin_addr.s_addr;
@@ -352,15 +352,15 @@ void add_packet_to_transaction(const u_char *packet, struct iphdr *iph, connecti
    unsigned short iphdrlen;
    iphdrlen = iph->ihl * 4;
    struct udphdr *udph = (struct udphdr *)(packet + iphdrlen + sizeof(struct ethhdr));
-   if (ntohs(udph->dest) == INT_YouTube_PORT)
+   if (ntohs(udph->dest) == YouTube_PORT)
    {
-      if (udph->len < INT_INBOUND_PACKETS_IN_RANGE_MIN)
+      if (udph->len < INBOUND_PACKETS_IN_RANGE_MIN)
       {
          return;
       }
       conn->trans->num_in_packets++;
    }
-   else if (ntohs(udph->source) == INT_YouTube_PORT)
+   else if (ntohs(udph->source) == YouTube_PORT)
    {
       conn->trans->num_out_packets++;
    }
@@ -372,7 +372,8 @@ void add_packet_to_transaction(const u_char *packet, struct iphdr *iph, connecti
    {
       conn->trans->min_size = udph->len;
    }
-   diff_time = pack_time - conn->trans->packet_time;
+   //printf("%ld",pack_time-conn->trans->packet_time);
+   diff_time = difftime(pack_time,conn->trans->packet_time);
    if (conn->trans->max_packet_time_diff < diff_time)
    {
       conn->trans->max_packet_time_diff = diff_time;
@@ -402,13 +403,13 @@ int is_new_request(const u_char *packet, struct iphdr *iph)
    iphdrlen = iph->ihl * 4;
    struct udphdr *udph = (struct udphdr *)(packet + iphdrlen + sizeof(struct ethhdr));
    int data_size = udph->len;
-   return data_size > INT_REQUEST_PACKET_THRESHOLD ? 1 : -1;
+   return data_size > REQUEST_PACKET_THRESHOLD ? 1 : -1;
 }
 
 // Checks if a period of time has passed since the previous packet
 int is_connection_timeout(transaction *trans, __time_t packet_time)
 {
-   return packet_time - trans->packet_time > INT_VIDEO_CONNECTION_TIMEOUT ? 1 : -1;
+   return packet_time - trans->packet_time > VIDEO_CONNECTION_TIMEOUT ? 1 : -1;
 }
 
 // Add transaction to hash
@@ -436,7 +437,7 @@ int new_conn_and_append_to_hash(const u_char *packet, struct iphdr *iph, f_tuple
 // Check if protocol is udp
 int is_udp(int protocol)
 {
-   return protocol == INT_UDP_PROTOCOL ? 1 : -1;
+   return protocol == UDP_PROTOCOL ? 1 : -1;
 }
 
 // close all the connections
@@ -451,17 +452,18 @@ int close_hash()
    }
    for (i = 0; i < ht_connection->capacity; i++)
    {
-      if (ht_connection->entries[i].key.client_ip != 0 && ht_connection->entries[i].value->size > INT_MINIMUM_VIDEO_CONNECTION_SIZE)
+      if (ht_connection->entries[i].key.client_ip != 0 && ht_connection->entries[i].value->size > MINIMUM_VIDEO_CONNECTION_SIZE)
       {
          printf("append conn: %d ind=%d\n", ht_connection->entries[i].value->connection_id, i);
          save_trans(ht_connection->entries[i].value);
          fprintf(file, "%s", ht_connection->entries[i].value->last_transactions);
-         free((void *)ht_connection->entries[i].value->last_transactions);
       }
+      free((void *)ht_connection->entries[i].value);
    }
    free((void *)ht_connection->entries);
    free((void *)ht_connection);
    fclose(file);
+   return 1;
 }
 
 // save transaction
@@ -473,11 +475,10 @@ int save_trans(connection *conn)
    strcpy(addr_s, inet_ntoa(*addr_srv));
    ltime = localtime(&conn->trans->start_time);
    strftime(buff, sizeof(buff), "%H:%M:%S", ltime);
-   // printf("buff: %s", buff);
    sprintf(conn->last_transactions, "%s %d", conn->last_transactions, conn->connection_id);
-   sprintf(conn->last_transactions, "%s, %s", conn->last_transactions, addr_c);
-   sprintf(conn->last_transactions, "%s %s", conn->last_transactions, addr_s);
-   sprintf(conn->last_transactions, "%s, %d, %d", conn->last_transactions, conn->trans->tuple->protocol, conn->trans->tuple->client_port);
+   sprintf(conn->last_transactions, "%s, %s, %s", conn->last_transactions, addr_c, addr_s);
+   sprintf(conn->last_transactions, "%s, %d", conn->last_transactions, conn->trans->tuple->protocol);
+   sprintf(conn->last_transactions, "%s, %d", conn->last_transactions, conn->trans->tuple->client_port);
    sprintf(conn->last_transactions, "%s, %d, %d", conn->last_transactions, conn->trans->tuple->server_port, conn->trans->transaction_id);
    sprintf(conn->last_transactions, "%s, %s", conn->last_transactions, buff);
    sprintf(conn->last_transactions, "%s, %d, %d", conn->last_transactions, conn->trans->num_in_packets, conn->trans->num_out_packets);
@@ -492,11 +493,11 @@ int is_ser_to_cli(const u_char *packet, struct iphdr *iph)
    unsigned short iphdrlen;
    iphdrlen = iph->ihl * 4;
    struct udphdr *udph = (struct udphdr *)(packet + iphdrlen + sizeof(struct ethhdr));
-   if (ntohs(udph->dest) == INT_YouTube_PORT)
+   if (ntohs(udph->dest) == YouTube_PORT)
    {
       return 1;
    }
-   if (ntohs(udph->source) == INT_YouTube_PORT)
+   if (ntohs(udph->source) == YouTube_PORT)
    {
       return 2;
    }
@@ -505,51 +506,39 @@ int is_ser_to_cli(const u_char *packet, struct iphdr *iph)
 
 int json()
 {
-   FILE *fp;
-   char buffer[1024];
-   struct json_object *parsed_json;
-
-   struct json_object *REQUEST_PACKET_THRESHOLD;
-   struct json_object *MAX_NUMBER_OF_CONNECTIONS;
-   struct json_object *CONN_SIZE_CHARS;
-   struct json_object *YouTube_PORT;
-   struct json_object *NUM_IP_BYTE;
-   struct json_object *MINIMUM_VIDEO_CONNECTION_SIZE;
-   struct json_object *INBOUND_PACKETS_IN_RANGE_MIN;
-   struct json_object *IPV;
-   struct json_object *UDP_PROTOCOL;
-   struct json_object *VIDEO_CONNECTION_TIMEOUT;
-   struct json_object *ZERO;
-
-   fp = fopen("config.json", "r");
-   fread(buffer, 1024, 1, fp);
-   fclose(fp);
-   parsed_json = json_tokener_parse(buffer);
-
-   json_object_object_get_ex(parsed_json, "REQUEST_PACKET_THRESHOLD", &REQUEST_PACKET_THRESHOLD);
-   json_object_object_get_ex(parsed_json, "MAX_NUMBER_OF_CONNECTIONS", &MAX_NUMBER_OF_CONNECTIONS);
-   json_object_object_get_ex(parsed_json, "CONN_SIZE_CHARS", &CONN_SIZE_CHARS);
-   json_object_object_get_ex(parsed_json, "INBOUND_PACKETS_IN_RANGE_MIN", &INBOUND_PACKETS_IN_RANGE_MIN);
-   json_object_object_get_ex(parsed_json, "IPV", &IPV);
-   json_object_object_get_ex(parsed_json, "VIDEO_CONNECTION_TIMEOUT", &VIDEO_CONNECTION_TIMEOUT);
-   json_object_object_get_ex(parsed_json, "UDP_PROTOCOL", &UDP_PROTOCOL);
-   json_object_object_get_ex(parsed_json, "MINIMUM_VIDEO_CONNECTION_SIZE", &MINIMUM_VIDEO_CONNECTION_SIZE);
-   json_object_object_get_ex(parsed_json, "YouTube_PORT", &YouTube_PORT);
-   json_object_object_get_ex(parsed_json, "NUM_IP_BYTE", &NUM_IP_BYTE);
-   json_object_object_get_ex(parsed_json, "ZERO", &ZERO);
-
-   printf("MAX_NUMBER_OF_CONNECTIONS: %d\n", json_object_get_int(MAX_NUMBER_OF_CONNECTIONS));
-
-   INT_REQUEST_PACKET_THRESHOLD = (int)json_object_get_int(REQUEST_PACKET_THRESHOLD);
-   INT_MINIMUM_VIDEO_CONNECTION_SIZE = json_object_get_int(MINIMUM_VIDEO_CONNECTION_SIZE);
-   INT_INBOUND_PACKETS_IN_RANGE_MIN = json_object_get_int(INBOUND_PACKETS_IN_RANGE_MIN);
-   INT_MAX_NUMBER_OF_CONNECTIONS = json_object_get_int(MAX_NUMBER_OF_CONNECTIONS);
-   INT_YouTube_PORT = json_object_get_int(YouTube_PORT);
-   INT_UDP_PROTOCOL = json_object_get_int(UDP_PROTOCOL);
-   INT_IPV = json_object_get_int(IPV);
-   INT_VIDEO_CONNECTION_TIMEOUT = json_object_get_int(VIDEO_CONNECTION_TIMEOUT);
-   INT_NUM_IP_BYTE = json_object_get_int(NUM_IP_BYTE);
-   INT_CONN_SIZE_CHARS = json_object_get_int(CONN_SIZE_CHARS);
-   INT_ZERO = json_object_get_int(ZERO);
+   struct json_object *INT_REQUEST_PACKET_THRESHOLD;
+   struct json_object *INT_MAX_NUMBER_OF_CONNECTIONS;
+   struct json_object *INT_CONN_SIZE_CHARS;
+   struct json_object *INT_YouTube_PORT;
+   struct json_object *INT_NUM_IP_BYTE;
+   struct json_object *INT_MINIMUM_VIDEO_CONNECTION_SIZE;
+   struct json_object *INT_INBOUND_PACKETS_IN_RANGE_MIN;
+   struct json_object *INT_IPV;
+   struct json_object *INT_UDP_PROTOCOL;
+   struct json_object *INT_VIDEO_CONNECTION_TIMEOUT;
+   struct json_object *INT_ZERO;
+   json_object_object_get_ex(parsed_json, "REQUEST_PACKET_THRESHOLD", &INT_REQUEST_PACKET_THRESHOLD);
+   json_object_object_get_ex(parsed_json, "MAX_NUMBER_OF_CONNECTIONS", &INT_MAX_NUMBER_OF_CONNECTIONS);
+   json_object_object_get_ex(parsed_json, "CONN_SIZE_CHARS", &INT_CONN_SIZE_CHARS);
+   json_object_object_get_ex(parsed_json, "INBOUND_PACKETS_IN_RANGE_MIN", &INT_INBOUND_PACKETS_IN_RANGE_MIN);
+   json_object_object_get_ex(parsed_json, "IPV", &INT_IPV);
+   json_object_object_get_ex(parsed_json, "VIDEO_CONNECTION_TIMEOUT", &INT_VIDEO_CONNECTION_TIMEOUT);
+   json_object_object_get_ex(parsed_json, "UDP_PROTOCOL", &INT_UDP_PROTOCOL);
+   json_object_object_get_ex(parsed_json, "MINIMUM_VIDEO_CONNECTION_SIZE", &INT_MINIMUM_VIDEO_CONNECTION_SIZE);
+   json_object_object_get_ex(parsed_json, "YouTube_PORT", &INT_YouTube_PORT);
+   json_object_object_get_ex(parsed_json, "NUM_IP_BYTE", &INT_NUM_IP_BYTE);
+   json_object_object_get_ex(parsed_json, "ZERO", &INT_ZERO);
+   REQUEST_PACKET_THRESHOLD = json_object_get_int(INT_REQUEST_PACKET_THRESHOLD);
+   MINIMUM_VIDEO_CONNECTION_SIZE = json_object_get_int(INT_MINIMUM_VIDEO_CONNECTION_SIZE);
+   INBOUND_PACKETS_IN_RANGE_MIN = json_object_get_int(INT_INBOUND_PACKETS_IN_RANGE_MIN);
+   MAX_NUMBER_OF_CONNECTIONS = json_object_get_int(INT_MAX_NUMBER_OF_CONNECTIONS);
+   YouTube_PORT = json_object_get_int(INT_YouTube_PORT);
+   UDP_PROTOCOL = json_object_get_int(INT_UDP_PROTOCOL);
+   IPV = json_object_get_int(INT_IPV);
+   VIDEO_CONNECTION_TIMEOUT = json_object_get_int(INT_VIDEO_CONNECTION_TIMEOUT);
+   NUM_IP_BYTE = json_object_get_int(INT_NUM_IP_BYTE);
+   CONN_SIZE_CHARS = json_object_get_int(INT_CONN_SIZE_CHARS);
+   ZERO = json_object_get_int(INT_ZERO);
+   printf("MAX_NUMBER_OF_CONNECTIONS: %d\n", json_object_get_int(INT_MAX_NUMBER_OF_CONNECTIONS));
    return 0;
 }
