@@ -145,13 +145,13 @@ void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header)
    if (check_ip_version(iph) == 1)
    {
       // check if(protocol==17){
-      Protocol=iph->protocol;
+      Protocol = iph->protocol;
       if (is_udp(Protocol) == 1)
       {
          f_tuple *tuple = create_f_tupel(packet, iph);
          if (tuple == NULL)
          {
-            //printf("is't not youtube\n");
+            // printf("is't not youtube\n");
             return;
          }
          connection *conn = ht_get(HT_Connection, tuple);
@@ -160,7 +160,7 @@ void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header)
             // if(pack_size>700)
             if (is_new_request() == 1)
             {
-               new_conn_and_append_to_hash(tuple, packet_header.ts.tv_sec);
+               new_conn_and_append_to_hash(tuple, packet_header.ts.tv_sec+packet_header.ts.tv_usec);
             }
             return;
          }
@@ -173,7 +173,7 @@ void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header)
                   return;
                }
                // check if(time_req<20sec || sum transaction>1000){
-               if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec) == 1 || conn->sum_transaction >= MAX_NUMBER_OF_CONNECTIONS)
+               if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec+packet_header.ts.tv_usec) == 1 || conn->sum_transaction >= MAX_NUMBER_OF_CONNECTIONS)
                {
                   if (conn->size > MINIMUM_VIDEO_CONNECTION_SIZE)
                   {
@@ -182,19 +182,19 @@ void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header)
                         printf("Unable to write .txt file.\n");
                         return;
                      }
-                     new_conn_and_append_to_hash(tuple, packet_header.ts.tv_sec);
+                     new_conn_and_append_to_hash(tuple, packet_header.ts.tv_sec+packet_header.ts.tv_usec);
                      return;
                   }
                }
-               else if (add_new_trans_to_conn(packet_header.ts.tv_sec, conn) != 1)
+               else if (add_new_trans_to_conn(packet_header.ts.tv_sec+packet_header.ts.tv_usec, conn) != 1)
                {
                   printf("cnot..\n");
                   return;
                }
             }
-            else if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec) != 1)
+            else if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec+packet_header.ts.tv_usec) != 1)
             {
-               add_packet_to_transaction(conn, packet_header.ts.tv_sec);
+               add_packet_to_transaction(conn, packet_header.ts.tv_sec+packet_header.ts.tv_usec);
                return;
             }
             else
@@ -231,7 +231,7 @@ transaction *create_new_transaction(__time_t pack_time, int size, f_tuple *tuple
 }
 
 // Create new connection
-connection *create_new_connection(int size,__time_t pack_time, f_tuple *tuple)
+connection *create_new_connection(int size, __time_t pack_time, f_tuple *tuple)
 {
    connection *conn = (connection *)malloc(sizeof(connection));
    if (conn == NULL)
@@ -261,7 +261,7 @@ connection *create_new_connection(int size,__time_t pack_time, f_tuple *tuple)
 
 int add_new_trans_to_conn(__time_t packet_time, connection *conn)
 {
-   conn->trans = create_new_transaction( packet_time, Pack_size, conn->trans->tuple,conn->sum_transaction + 1);
+   conn->trans = create_new_transaction(packet_time, Pack_size, conn->trans->tuple, conn->sum_transaction + 1);
    if (conn->trans == NULL)
    {
       printf("trans not create");
@@ -287,7 +287,6 @@ int append_line(char *lines)
       printf("Unable to open file.\n");
       return -1;
    }
-   // SHF_ASSERT(NULL != file, "shf.log: ERROR: fopen('%s', 'a') failed", SCV_file);
    fprintf(file, "%s", lines);
    fclose(file);
    empty_the_write_to_CSV_file(lines);
@@ -413,7 +412,7 @@ int add_to_hash(connection *conn)
 // Create new connection and append to hash table
 int new_conn_and_append_to_hash(f_tuple *tuple, __time_t packet_time)
 {
-   connection *conn = create_new_connection(Pack_size,packet_time, tuple);
+   connection *conn = create_new_connection(Pack_size, packet_time, tuple);
    if (add_to_hash(conn) < 0)
    {
       perror("the hash full--not insert to hash\n");
@@ -445,7 +444,7 @@ int close_hash()
       {
          printf("append conn: %d ind=%d\n", HT_Connection->entries[i].value->connection_id, i);
          save_trans(HT_Connection->entries[i].value);
-         fprintf(file, "%s",HT_Connection->entries[i].value->last_transactions);
+         fprintf(file, "%s", HT_Connection->entries[i].value->last_transactions);
       }
       free((void *)HT_Connection->entries[i].value);
    }
