@@ -97,7 +97,7 @@ int main(int argc, char const *argv[])
       return 0;
    }
    empty_the_write_to_CSV_file(write_to_CSV_file);
-   sprintf(write_to_CSV_file, "Conn_id, Client_ip, Server_ip, IP_protocol, UDP_client_port, UDP_server_port, Transaction_id, Start_time, num_in_packets, num_out_packets,max_packet_size_in,min_packet_size_in, max_diff_time, min_diff_time,sum_squareln_bound_packet_time_diff,RTT\n");
+   sprintf(write_to_CSV_file, "Conn_id, Client_ip, Server_ip, IP_protocol, UDP_client_port, UDP_server_port, Transaction_id, Start_time, num_in_packets, num_out_packets,max_packet_size_in,min_packet_size_in, max_diff_time, min_diff_time\n");
 
    if (append_line(write_to_CSV_file) < 0)
    {
