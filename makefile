@@ -6,14 +6,12 @@ else
 	CFLAGS :=  -O1 
 endif
 
-LDFLAGS := -lpcap -ljson-c #-pthread  
+LDFLAGS := -lpcap -ljson-c 
 
-run: hash_pcap.o #hashtable.o#hashtable.o
+run: hash_pcap.o
 	$(CC) -o run hash_pcap.o $(LDFLAGS)
 hash_pcap.o: hash_pcap.c
 	$(CC) $(CFLAGS) -c hash_pcap.c $(LDFLAGS)
-#hashtable.o: hashtable.c hashtable.h
-# 	$(CC) $(CFLAGS) -c hashtable.c $(LDFLAGS) 
 
 clear:
 	rm  -f *.o run *csv
