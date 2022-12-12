@@ -1,4 +1,4 @@
-CC := clang#CC := gcc
+CC := clang
 
 ifeq ($(DEBUG),1)
 	CFLAGS :=  -O0 -g
@@ -6,9 +6,7 @@ else
 	CFLAGS :=  -O1 
 endif
 
-LDFLAGS := -lpcap -ljson-c -pthread  
-
-# -fsanitize=address# run: hash_pcap.o# 	gcc hash_pcap.c -lpcap -ljson-c -g
+LDFLAGS := -lpcap -ljson-c #-pthread  
 
 run: hash_pcap.o #hashtable.o#hashtable.o
 	$(CC) -o run hash_pcap.o $(LDFLAGS)
@@ -18,5 +16,5 @@ hash_pcap.o: hash_pcap.c
 # 	$(CC) $(CFLAGS) -c hashtable.c $(LDFLAGS) 
 
 clear:
-	rm  -f *.o run *csv *out
-
+	rm  -f *.o run *csv
+	
