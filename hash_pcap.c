@@ -10,7 +10,11 @@
 #include <signal.h>
 #include "hashtable.c"
 #include <json-c/json.h>
+#include <netinet/in.h>
+#include "netinet/ip.h"
+#include "pcap.h"
 
+#define ntohs(x) __bswap_16 (x)
 #define size_malloc 99990000
 int json();
 void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header);
@@ -50,6 +54,7 @@ int UDP_PROTOCOL;
 int VIDEO_CONNECTION_TIMEOUT;
 int IPV;
 int INBOUND_PACKETS_IN_RANGE_MIN;
+int INBOUND_PACKETS_IN_RANGE_MAX, MAX_number_of_transaction_per_video;
 int CONN_SIZE_CHARS;
 int ZERO;
 
@@ -61,7 +66,7 @@ uint8_t Protocol;
 int Connect_id;
 char SCV_file[20] = "documentation.csv";
 FILE *fp;
-ht *HT_Connection;
+ht *hash_table;
 char Buffer[1024];
 struct json_object *parsed_json;
 struct sockaddr_in source, dest;
@@ -74,14 +79,18 @@ struct in_addr *addr_cli;
 struct in_addr *addr_srv;
 char addr_c[16];
 char addr_s[16];
-
+int duration_of_the_video = 0, number_of_TDRs_per_video = 0;
+double time_between_two_consecutive_TDRs = 0.0;
+double duration_of_the_TDRs_per_video;
+unsigned long size_of_the_videos = 0;
+int its_right_sum_of_pacs=0;
 int main(int argc, char const *argv[])
 {
    if (signal(SIGINT, sig_handler) == SIG_ERR)
       printf("\ncan't catch SIGINT\n");
 
    start = clock();
-   HT_Connection = ht_create();
+   hash_table = ht_create();
    int i, j = 0;
 
    fp = fopen("config.json", "r");
@@ -97,7 +106,7 @@ int main(int argc, char const *argv[])
       return 0;
    }
    empty_the_write_to_CSV_file(write_to_CSV_file);
-   sprintf(write_to_CSV_file, "Conn_id, Client_ip, Server_ip, IP_protocol, UDP_client_port, UDP_server_port, Transaction_id, Start_time, num_in_packets, num_out_packets,max_packet_size_in,min_packet_size_in, max_diff_time, min_diff_time\n");
+   sprintf(write_to_CSV_file, "Conn_id, Client_ip, Server_ip, IP_protocol, UDP_client_port, UDP_server_port, Transaction_id, Start_time, num_in_packets, num_out_packets,max_packet_size_in,min_packet_size_in, max_diff_time, min_diff_time,sum_squareln_bound_packet_time_diff,RTT\n");
 
    if (append_line(write_to_CSV_file) < 0)
    {
@@ -134,8 +143,8 @@ int main(int argc, char const *argv[])
    printf("\nnum packets = %d \n", j);
    printf("all time: %ld \n", clock() - start);
    pcap_close(handle);
-   statistics_file();
    close_hash();
+   statistics_file();
    return 0;
 }
 void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header)
@@ -154,42 +163,50 @@ void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header)
             // printf("is't not youtube\n");
             return;
          }
-         connection *conn = ht_get(HT_Connection, tuple);
+         connection *conn = ht_get(hash_table, tuple);
          if (conn == NULL)
          {
             // if(pack_size>700)
             if (is_new_request() == 1)
             {
+               its_right_sum_of_pacs++;
                new_conn_and_append_to_hash(tuple, packet_header.ts.tv_sec + packet_header.ts.tv_usec);
             }
             return;
          }
          else
          {
-            if (is_ser_to_cli() == 1 && is_new_request() == 1)
+            if (is_ser_to_cli() == 1)
             {
-               if (save_trans(conn) != 1)
+               if (is_new_request() == 1)
                {
-                  return;
-               }
-               // check if(time_req<20sec || sum transaction>1000){
-               if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec + packet_header.ts.tv_usec) == 1 || conn->sum_transaction >= MAX_NUMBER_OF_CONNECTIONS)
-               {
-                  if (conn->size > MINIMUM_VIDEO_CONNECTION_SIZE)
+                  its_right_sum_of_pacs++;
+                  if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec + packet_header.ts.tv_usec) == 1 || conn->trans->transaction_id >= MAX_number_of_transaction_per_video)
                   {
-                     if (append_line(conn->last_transactions) < 0)
+                     if (conn->size > MINIMUM_VIDEO_CONNECTION_SIZE)
                      {
-                        printf("Unable to write .txt file.\n");
+                        if (save_trans(conn) != 1)
+                        {
+                           return;
+                        }
+                        if (append_line(conn->last_transactions) < 0)
+                        {
+                           printf("Unable to write .txt file.\n");
+                           return;
+                        }
+                        ht_delete(hash_table,conn->trans->tuple);
+                        new_conn_and_append_to_hash(tuple, packet_header.ts.tv_sec + packet_header.ts.tv_usec);
                         return;
                      }
-                     new_conn_and_append_to_hash(tuple, packet_header.ts.tv_sec + packet_header.ts.tv_usec);
                      return;
                   }
-               }
-               else if (add_new_trans_to_conn(packet_header.ts.tv_sec + packet_header.ts.tv_usec, conn) != 1)
-               {
-                  printf("cnot..\n");
-                  return;
+                  else if (add_new_trans_to_conn(packet_header.ts.tv_sec + packet_header.ts.tv_usec, conn) != 1)
+                  {
+                     printf("cnot..\n");
+                     return;
+                  }
+               }else{
+                  add_packet_to_transaction(conn, packet_header.ts.tv_sec + packet_header.ts.tv_usec);
                }
             }
             else if (is_connection_timeout(conn->trans, packet_header.ts.tv_sec + packet_header.ts.tv_usec) != 1)
@@ -205,7 +222,6 @@ void check_packet_info(const u_char *packet, struct pcap_pkthdr packet_header)
       }
       // printf("ip not v4\n");
    }
-
    return;
 }
 
@@ -226,7 +242,8 @@ transaction *create_new_transaction(__time_t pack_time, int size, f_tuple *tuple
    trans->min_size = size;
    trans->max_size = size;
    trans->max_packet_time_diff = 0.0;
-   trans->min_packet_time_diff = 9999999.9;
+   trans->min_packet_time_diff = __INT_MAX__;
+   trans->square_inbound_packet_time_diff = 0.0;
    return trans;
 }
 
@@ -239,37 +256,38 @@ connection *create_new_connection(int size, __time_t pack_time, f_tuple *tuple)
       printf("malloc filed\n");
       return NULL;
    }
+   conn->connection_id = Connect_id;
+   Connect_id++;
    conn->trans = create_new_transaction(pack_time, size, tuple, 0);
    if (conn->trans == NULL)
    {
       printf("not trans\n");
       return NULL;
    }
-   conn->last_transactions = (char *)malloc(size_malloc);
+   conn->last_transactions = (char *)malloc(size_malloc); // MAX_NUMBER_OF_CONNECTIONS*250);
    if (conn->last_transactions == NULL)
    {
       printf("not conn\n");
       return NULL;
    }
    empty_the_write_to_CSV_file(conn->last_transactions);
-   conn->connection_id = Connect_id;
-   Connect_id++;
    conn->size = size;
-   conn->sum_transaction = 0;
    return conn;
 }
 
 int add_new_trans_to_conn(__time_t packet_time, connection *conn)
 {
-   conn->trans = create_new_transaction(packet_time, Pack_size, conn->trans->tuple, conn->sum_transaction + 1);
+   save_trans(conn);
+   printf("transaction saved\n");
+   time_between_two_consecutive_TDRs+=conn->trans->packet_time-packet_time;
+   conn->trans = create_new_transaction(packet_time, Pack_size, conn->trans->tuple, conn->trans->transaction_id + 1);
    if (conn->trans == NULL)
    {
-      printf("trans not create");
+      printf("transaction not create\n");
       return -1;
    }
    conn->size += Pack_size;
    conn->sum_transaction++;
-   // printf("trans num:%d added succes to conn:%d\n", conn->trans->transaction_id, conn->connection_id);
    return 1;
 }
 
@@ -287,7 +305,6 @@ int append_line(char *lines)
       printf("Unable to open file.\n");
       return -1;
    }
-   // SHF_ASSERT(NULL != file, "shf.log: ERROR: fopen('%s', 'a') failed", SCV_file);
    fprintf(file, "%s", lines);
    fclose(file);
    empty_the_write_to_CSV_file(lines);
@@ -303,7 +320,15 @@ void statistics_file()
       printf("Unable to open file.\n");
       return;
    }
-   fprintf(file, "videos connections  have been watched, %d \n", Connect_id);
+   printf("Average size of the videos, %lf \n", (double)size_of_the_videos);
+   printf("Average number of TDRs per video, %d \n", number_of_TDRs_per_video);
+   fprintf(file, "Videos connections have been watched, %d \n", Connect_id);
+   fprintf(file, "\nAverage size of the videos, %f \n", (double)size_of_the_videos / Connect_id);
+   fprintf(file, "Average number of TDRs per video, %d \n", number_of_TDRs_per_video / Connect_id);
+   fprintf(file, "Average size of the TDRs per video ,%f \n", (double)size_of_the_videos / number_of_TDRs_per_video);
+   fprintf(file, "Average duration of the TDRs per video, %f \n", duration_of_the_TDRs_per_video/number_of_TDRs_per_video);
+   fprintf(file, "Average time between two consecutive TDRs, %f \n", time_between_two_consecutive_TDRs/number_of_TDRs_per_video);
+   fprintf(file, "\n\nits right- sum of packets,%d \n", its_right_sum_of_pacs);
    fclose(file);
    return;
 }
@@ -313,12 +338,16 @@ void statistics_file()
 f_tuple *create_f_tupel(const u_char *packet, struct iphdr *iph)
 {
    unsigned short iphdrlen;
-   iphdrlen = iph->ihl * 4;
+   iphdrlen = iph->ihl * 4; // size ip
    struct udphdr *udph = (struct udphdr *)(packet + iphdrlen + sizeof(struct ethhdr));
    f_tuple *tuple = (f_tuple *)malloc(sizeof(f_tuple));
+   if (tuple == NULL)
+   {
+      return -1;
+   }
    tuple->protocol = Protocol;
    // pack_size to other funcs
-   Pack_size = udph->len;
+   Pack_size = ntohs(udph->len);
    memset(&source, 0, sizeof(source));
    source.sin_addr.s_addr = iph->saddr;
    memset(&dest, 0, sizeof(dest));
@@ -347,19 +376,21 @@ f_tuple *create_f_tupel(const u_char *packet, struct iphdr *iph)
 // Add packet to transaction
 void add_packet_to_transaction(connection *conn, __time_t pack_time)
 {
-   printf("add packet%d to trans:%d, conn:%d\n", conn->trans->num_in_packets + conn->trans->num_out_packets, conn->trans->transaction_id, conn->connection_id);
    if (Dest_port == YouTube_PORT)
    {
-      if (Pack_size < INBOUND_PACKETS_IN_RANGE_MIN)
+      printf("pack_size:%d\n", Pack_size);
+      printf("INBOUND_PACKETS_IN_RANGE_MIN:%d\n", INBOUND_PACKETS_IN_RANGE_MIN);
+      if (Pack_size > INBOUND_PACKETS_IN_RANGE_MIN)
       {
+         conn->trans->num_in_packets++;
          return;
       }
-      conn->trans->num_in_packets++;
    }
    else if (Source_port == YouTube_PORT)
    {
       conn->trans->num_out_packets++;
    }
+   printf("add packet%d to trans:%d, conn:%d\n", conn->trans->num_in_packets + conn->trans->num_out_packets, conn->trans->transaction_id, conn->connection_id);
    if (conn->trans->max_size < Pack_size)
    {
       conn->trans->max_size = Pack_size;
@@ -368,19 +399,23 @@ void add_packet_to_transaction(connection *conn, __time_t pack_time)
    {
       conn->trans->min_size = Pack_size;
    }
+   printf("%ld", pack_time - conn->trans->packet_time);
    Diff_time = difftime(pack_time, conn->trans->packet_time);
    if (Diff_time < 0)
    {
       Diff_time *= -1;
    }
    printf("diff:%f\n", Diff_time);
-   if (conn->trans->max_packet_time_diff < Diff_time)
+   conn->trans->square_inbound_packet_time_diff += Diff_time * Diff_time;
    {
-      conn->trans->max_packet_time_diff = Diff_time;
-   }
-   else if (conn->trans->min_packet_time_diff > Diff_time)
-   {
-      conn->trans->min_packet_time_diff = Diff_time;
+      if (conn->trans->max_packet_time_diff < Diff_time)
+      {
+         conn->trans->max_packet_time_diff = Diff_time;
+      }
+      else if (conn->trans->min_packet_time_diff > Diff_time)
+      {
+         conn->trans->min_packet_time_diff = Diff_time;
+      }
    }
    conn->trans->packet_time = pack_time;
    conn->size += Pack_size;
@@ -411,19 +446,19 @@ int is_connection_timeout(transaction *trans, __time_t packet_time)
 // Add transaction to hash
 int add_to_hash(connection *conn)
 {
-   return ht_set(HT_Connection, conn->trans->tuple, conn) == NULL ? -1 : 1;
+   return ht_set(hash_table, conn->trans->tuple, conn) == NULL ? -1 : 1;
 }
 
 // Create new connection and append to hash table
 int new_conn_and_append_to_hash(f_tuple *tuple, __time_t packet_time)
 {
    connection *conn = create_new_connection(Pack_size, packet_time, tuple);
+   printf("the hash\n");
    if (add_to_hash(conn) < 0)
    {
       perror("the hash full--not insert to hash\n");
       return -1;
    }
-   // printf("trans num:%d added succes to conn:%d\n", conn->trans->transaction_id, conn->connection_id);
    return 1;
 }
 
@@ -443,18 +478,21 @@ int close_hash()
       printf("Unable to open file.\n");
       return -1;
    }
-   for (i = 0; i < HT_Connection->capacity; i++)
+   for (i = 0; i < hash_table->capacity; i++)
    {
-      if (HT_Connection->entries[i].key.client_ip != 0 && HT_Connection->entries[i].value->size > MINIMUM_VIDEO_CONNECTION_SIZE)
+      if (hash_table->entries[i].key.client_ip != 0) //&& hash_table->entries[i].value->size > MINIMUM_VIDEO_CONNECTION_SIZE)
       {
-         printf("append conn: %d ind=%d\n", HT_Connection->entries[i].value->connection_id, i);
-         save_trans(HT_Connection->entries[i].value);
-         fprintf(file, "%s", HT_Connection->entries[i].value->last_transactions);
+         printf("append conn: %d ind=%d\n", hash_table->entries[i].value->connection_id, i);
+         size_of_the_videos += hash_table->entries[i].value->size;
+         number_of_TDRs_per_video += hash_table->entries[i].value->trans->transaction_id + 1;
+         duration_of_the_TDRs_per_video += hash_table->entries[i].value->duration_of_the_TDRs;
+         save_trans(hash_table->entries[i].value);
+         fprintf(file, "%s", hash_table->entries[i].value->last_transactions);
       }
-      free((void *)HT_Connection->entries[i].value);
+      free((void *)hash_table->entries[i].value);
    }
-   free((void *)HT_Connection->entries);
-   free((void *)HT_Connection);
+   free((void *)hash_table->entries);
+   free((void *)hash_table);
    fclose(file);
    return 1;
 }
@@ -462,21 +500,18 @@ int close_hash()
 // save transaction
 int save_trans(connection *conn)
 {
+   conn->duration_of_the_TDRs +=difftime(conn->trans->start_time,conn->trans->packet_time);
    addr_cli->s_addr = conn->trans->tuple->client_ip;
    addr_srv->s_addr = conn->trans->tuple->server_ip;
    strcpy(addr_c, inet_ntoa(*addr_cli));
    strcpy(addr_s, inet_ntoa(*addr_srv));
    ltime = localtime(&conn->trans->start_time);
    strftime(buff, sizeof(buff), "%H:%M:%S", ltime);
-   sprintf(conn->last_transactions, "%s %d", conn->last_transactions, conn->connection_id);
-   sprintf(conn->last_transactions, "%s, %s, %s", conn->last_transactions, addr_c, addr_s);
-   sprintf(conn->last_transactions, "%s, %d", conn->last_transactions, conn->trans->tuple->protocol);
-   sprintf(conn->last_transactions, "%s, %d", conn->last_transactions, conn->trans->tuple->client_port);
-   sprintf(conn->last_transactions, "%s, %d, %d", conn->last_transactions, conn->trans->tuple->server_port, conn->trans->transaction_id);
-   sprintf(conn->last_transactions, "%s, %s", conn->last_transactions, buff);
-   sprintf(conn->last_transactions, "%s, %d, %d", conn->last_transactions, conn->trans->num_in_packets, conn->trans->num_out_packets);
-   sprintf(conn->last_transactions, "%s, %d, %d", conn->last_transactions, conn->trans->max_size, conn->trans->min_size);
-   sprintf(conn->last_transactions, "%s, %f, %f\n", conn->last_transactions, conn->trans->max_packet_time_diff, conn->trans->min_packet_time_diff);
+   if(conn->trans->min_packet_time_diff==__INT_MAX__) 
+      conn->trans->min_packet_time_diff=conn->trans->max_packet_time_diff;
+   char buffer[200];
+   sprintf(&buffer, "%d, %s, %s, %d, %d, %d, %d, %s, %d, %d, %d, %d, %f, %f, %f\n", conn->connection_id, addr_c, addr_s, conn->trans->tuple->protocol, conn->trans->tuple->client_port, conn->trans->tuple->server_port, conn->trans->transaction_id, buff, conn->trans->num_in_packets, conn->trans->num_out_packets, conn->trans->max_size, conn->trans->min_size, conn->trans->max_packet_time_diff, conn->trans->min_packet_time_diff, conn->trans->square_inbound_packet_time_diff);
+   strcat(conn->last_transactions, buffer);
    return 1;
 }
 
@@ -502,7 +537,9 @@ int json()
    struct json_object *INT_YouTube_PORT;
    struct json_object *INT_NUM_IP_BYTE;
    struct json_object *INT_MINIMUM_VIDEO_CONNECTION_SIZE;
+   struct json_object *INT_max_number_of_transaction_per_video;
    struct json_object *INT_INBOUND_PACKETS_IN_RANGE_MIN;
+   struct json_object *INT_INBOUND_PACKETS_IN_RANGE_MAX;
    struct json_object *INT_IPV;
    struct json_object *INT_UDP_PROTOCOL;
    struct json_object *INT_VIDEO_CONNECTION_TIMEOUT;
@@ -511,17 +548,21 @@ int json()
    json_object_object_get_ex(parsed_json, "MAX_NUMBER_OF_CONNECTIONS", &INT_MAX_NUMBER_OF_CONNECTIONS);
    json_object_object_get_ex(parsed_json, "CONN_SIZE_CHARS", &INT_CONN_SIZE_CHARS);
    json_object_object_get_ex(parsed_json, "INBOUND_PACKETS_IN_RANGE_MIN", &INT_INBOUND_PACKETS_IN_RANGE_MIN);
+   json_object_object_get_ex(parsed_json, "INBOUND_PACKETS_IN_RANGE_MAX", &INT_INBOUND_PACKETS_IN_RANGE_MAX);
    json_object_object_get_ex(parsed_json, "IPV", &INT_IPV);
    json_object_object_get_ex(parsed_json, "VIDEO_CONNECTION_TIMEOUT", &INT_VIDEO_CONNECTION_TIMEOUT);
    json_object_object_get_ex(parsed_json, "UDP_PROTOCOL", &INT_UDP_PROTOCOL);
    json_object_object_get_ex(parsed_json, "MINIMUM_VIDEO_CONNECTION_SIZE", &INT_MINIMUM_VIDEO_CONNECTION_SIZE);
+   json_object_object_get_ex(parsed_json, "max_number_of_transaction_per_video", &INT_max_number_of_transaction_per_video);
    json_object_object_get_ex(parsed_json, "YouTube_PORT", &INT_YouTube_PORT);
    json_object_object_get_ex(parsed_json, "NUM_IP_BYTE", &INT_NUM_IP_BYTE);
    json_object_object_get_ex(parsed_json, "ZERO", &INT_ZERO);
    REQUEST_PACKET_THRESHOLD = json_object_get_int(INT_REQUEST_PACKET_THRESHOLD);
    MINIMUM_VIDEO_CONNECTION_SIZE = json_object_get_int(INT_MINIMUM_VIDEO_CONNECTION_SIZE);
    INBOUND_PACKETS_IN_RANGE_MIN = json_object_get_int(INT_INBOUND_PACKETS_IN_RANGE_MIN);
+   INBOUND_PACKETS_IN_RANGE_MAX = json_object_get_int(INT_INBOUND_PACKETS_IN_RANGE_MAX);
    MAX_NUMBER_OF_CONNECTIONS = json_object_get_int(INT_MAX_NUMBER_OF_CONNECTIONS);
+   MAX_number_of_transaction_per_video = json_object_get_int(INT_max_number_of_transaction_per_video);
    YouTube_PORT = json_object_get_int(INT_YouTube_PORT);
    UDP_PROTOCOL = json_object_get_int(INT_UDP_PROTOCOL);
    IPV = json_object_get_int(INT_IPV);
