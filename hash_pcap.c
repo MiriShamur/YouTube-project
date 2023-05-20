@@ -328,7 +328,6 @@ void statistics_file()
    fprintf(file, "Average size of the TDRs per video ,%f \n", (double)size_of_the_videos / number_of_TDRs_per_video);
    fprintf(file, "Average duration of the TDRs per video, %f \n", duration_of_the_TDRs_per_video/number_of_TDRs_per_video);
    fprintf(file, "Average time between two consecutive TDRs, %f \n", time_between_two_consecutive_TDRs/number_of_TDRs_per_video);
-   fprintf(file, "\n\nits right- sum of packets,%d \n", its_right_sum_of_pacs);
    fclose(file);
    return;
 }
